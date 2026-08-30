@@ -112,13 +112,17 @@ jobs:
 
       # >64KB of paths with the ONLY product file first: `grep -q` used to exit
       # early, SIGPIPE the producer, and pipefail turned that into "no match".
+      # Sized ~90KB: above the 64KB pipe buffer that triggers the bug, below the
+      # 128KB Linux MAX_ARG_STRLEN ceiling on a single env var - past that the
+      # runner cannot pass changed-paths at all and the step dies before the
+      # script runs. Consumers with enormous PRs hit that limit, not this bug.
       - name: fixture - oversized path list
         id: big
         shell: bash
         run: |
           set -euo pipefail
           printf 'feat: add a parser\n' > "$RUNNER_TEMP/big-msg.txt"
-          { printf 'src/hit.cs'; for i in $(seq 1 8000); do printf ' docs/file%05d.md' "$i"; done; } > "$RUNNER_TEMP/paths.txt"
+          { printf 'src/hit.cs'; for i in $(seq 1 5000); do printf ' docs/file%05d.md' "$i"; done; } > "$RUNNER_TEMP/paths.txt"
           echo "bytes=$(wc -c < "$RUNNER_TEMP/paths.txt")" >> "$GITHUB_OUTPUT"
           { echo 'paths<<EOF'; cat "$RUNNER_TEMP/paths.txt"; echo; echo 'EOF'; } >> "$GITHUB_OUTPUT"
       - id: oversized
