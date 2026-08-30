@@ -1,0 +1,77 @@
+name: check-commit-message
+description: Validate a commit subject follows Conventional Commits, and that release-triggering types touch product code.
+
+inputs:
+  message-file:
+    description: Path to a file holding the commit message (or PR title) to validate.
+    required: true
+  changed-paths:
+    description: >-
+      Newline- or space-separated paths changed by the commit. When empty the
+      product-code check is skipped.
+    required: false
+    default: ''
+  types:
+    description: Pipe-separated Conventional Commit types accepted as the subject prefix.
+    required: false
+    default: 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert'
+  product-path:
+    description: >-
+      Path prefix holding product code. A feat/fix commit must change at least
+      one file under it, because those types bump the version.
+    required: false
+    default: 'src/'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MESSAGE_FILE: ${{ inputs.message-file }}
+        CHANGED_PATHS: ${{ inputs.changed-paths }}
+        TYPES: ${{ inputs.types }}
+        PRODUCT_PATH: ${{ inputs.product-path }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f "$MESSAGE_FILE" ]; then
+          echo "::error::message file not found: $MESSAGE_FILE"
+          exit 2
+        fi
+
+        # First non-blank, non-comment line is the subject.
+        subject="$(grep -vE '^[[:space:]]*(#|$)' "$MESSAGE_FILE" | head -n 1 || true)"
+        if [ -z "$subject" ]; then
+          echo "::error::commit message is empty"
+          exit 1
+        fi
+
+        # git's own generated subjects are not Conventional Commits.
+        case "$subject" in
+          "Merge "*|"Revert "*|"fixup!"*|"squash!"*)
+            echo "Exempt subject: $subject"
+            exit 0
+            ;;
+        esac
+
+        if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([[:alnum:]._/ -]+\))?!?: .+"; then
+          echo "::error::Commit subject is not a Conventional Commit: $subject"
+          echo "Expected: type(scope): subject   (types: ${TYPES//|/, })"
+          exit 1
+        fi
+
+        # Release-triggering types must change product code. Skipped when the
+        # caller passes no paths.
+        type="$(printf '%s' "$subject" | sed -E "s/^($TYPES).*/\1/")"
+        if { [ "$type" = "feat" ] || [ "$type" = "fix" ]; } && [ -n "${CHANGED_PATHS// /}" ]; then
+          # Normalise Windows separators; the local hook passes native paths.
+          normalised="${CHANGED_PATHS//\\//}"
+          if ! printf '%s\n' $normalised | grep -qE "^$PRODUCT_PATH"; then
+            echo "::error::'$type:' changes nothing under $PRODUCT_PATH (product code): $subject"
+            echo "feat/fix bump the version and must touch $PRODUCT_PATH."
+            echo "Use ci:/chore:/docs:/test:/build:/refactor: for tooling, docs, tests, or CI."
+            exit 1
+          fi
+        fi
+
+        echo "OK: $subject"

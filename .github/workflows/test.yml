@@ -1,0 +1,88 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  branch-name:
+    name: branch-name (${{ matrix.case.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - {name: valid, branch: 'ci/14-protected-trunk', expect: success}
+          - {name: valid-multi-hyphen, branch: 'chore/198-github-mcp-server', expect: success}
+          - {name: exempt-bot, branch: 'dependabot/nuget/xunit-4.0.0', expect: success}
+          - {name: no-issue-number, branch: 'ci/protected-trunk', expect: failure}
+          - {name: unknown-type, branch: 'wip/14-something', expect: failure}
+          - {name: uppercase, branch: 'ci/14-Protected-Trunk', expect: failure}
+    steps:
+      - uses: actions/checkout@v5
+      - id: run
+        continue-on-error: true
+        uses: ./branch-name
+        with:
+          branch: ${{ matrix.case.branch }}
+      - name: assert
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.run.outcome }}
+          EXPECT: ${{ matrix.case.expect }}
+        run: |
+          set -euo pipefail
+          if [ "$OUTCOME" != "$EXPECT" ]; then
+            echo "::error::expected $EXPECT, got $OUTCOME"
+            exit 1
+          fi
+          echo "OK: $EXPECT"
+
+  check-commit-message:
+    name: check-commit-message (${{ matrix.case.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - {name: valid, subject: 'ci(lint): tighten the check', paths: '', expect: success}
+          - {name: valid-breaking, subject: 'feat!: rework the parser', paths: 'src/Core/P.cs', expect: success}
+          - {name: exempt-merge, subject: 'Merge branch main into topic', paths: '', expect: success}
+          - {name: no-type, subject: 'tighten the check', paths: '', expect: failure}
+          - {name: unknown-type, subject: 'wip: tighten the check', paths: '', expect: failure}
+          - {name: no-space, subject: 'ci:tighten the check', paths: '', expect: failure}
+          - {name: feat-outside-src, subject: 'feat: add a workflow', paths: '.github/workflows/x.yml', expect: failure}
+          - {name: feat-inside-src, subject: 'feat: add a parser', paths: 'src/Core/P.cs', expect: success}
+          - {name: chore-outside-src, subject: 'chore: bump a tool', paths: '.config/tools.json', expect: success}
+    steps:
+      - uses: actions/checkout@v5
+      - name: write fixture
+        shell: bash
+        env:
+          SUBJECT: ${{ matrix.case.subject }}
+        run: printf '%s\n' "$SUBJECT" > "$RUNNER_TEMP/msg.txt"
+      - id: run
+        continue-on-error: true
+        uses: ./check-commit-message
+        with:
+          message-file: ${{ runner.temp }}/msg.txt
+          changed-paths: ${{ matrix.case.paths }}
+      - name: assert
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.run.outcome }}
+          EXPECT: ${{ matrix.case.expect }}
+        run: |
+          set -euo pipefail
+          if [ "$OUTCOME" != "$EXPECT" ]; then
+            echo "::error::expected $EXPECT, got $OUTCOME"
+            exit 1
+          fi
+          echo "OK: $EXPECT"

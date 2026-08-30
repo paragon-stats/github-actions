@@ -1,0 +1,46 @@
+name: branch-name
+description: Validate a branch name follows the <type>/<issue#>-<short-kebab-summary> convention.
+
+inputs:
+  branch:
+    description: Branch name to validate (e.g. the PR head ref).
+    required: true
+  types:
+    description: Pipe-separated Conventional Commit types accepted as the branch prefix.
+    required: false
+    default: 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert'
+  exempt-pattern:
+    description: >-
+      Extended regex matching branches that are exempt, such as bot-generated
+      ones that cannot follow the convention.
+    required: false
+    default: '^(dependabot/|release-please--)'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        TYPES: ${{ inputs.types }}
+        EXEMPT_PATTERN: ${{ inputs.exempt-pattern }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$BRANCH" ]; then
+          echo "::error::no branch name given"
+          exit 2
+        fi
+
+        if [ -n "$EXEMPT_PATTERN" ] && printf '%s' "$BRANCH" | grep -qE "$EXEMPT_PATTERN"; then
+          echo "Exempt automation branch: $BRANCH"
+          exit 0
+        fi
+
+        if ! printf '%s' "$BRANCH" | grep -qE "^($TYPES)/[0-9]+-[a-z0-9-]+$"; then
+          echo "::error::Branch \"$BRANCH\" does not match <type>/<issue#>-<short-kebab-summary> (e.g. ci/14-protected-trunk)"
+          echo "Accepted types: ${TYPES//|/, }"
+          exit 1
+        fi
+
+        echo "OK: $BRANCH"
