@@ -38,10 +38,7 @@ jobs:
           EXPECT: ${{ matrix.case.expect }}
         run: |
           set -euo pipefail
-          if [ "$OUTCOME" != "$EXPECT" ]; then
-            echo "::error::expected $EXPECT, got $OUTCOME"
-            exit 1
-          fi
+          [ "$OUTCOME" = "$EXPECT" ] || { echo "::error::expected $EXPECT, got $OUTCOME"; exit 1; }
           echo "OK: $EXPECT"
 
   check-commit-message:
@@ -61,6 +58,14 @@ jobs:
           - {name: feat-outside-src, subject: 'feat: add a workflow', paths: '.github/workflows/x.yml', expect: failure}
           - {name: feat-inside-src, subject: 'feat: add a parser', paths: 'src/Core/P.cs', expect: success}
           - {name: chore-outside-src, subject: 'chore: bump a tool', paths: '.config/tools.json', expect: success}
+          - {name: scope-with-slash, subject: 'ci(git/hooks): tidy', paths: '', expect: success}
+          # Regressions. Each of these shipped broken once; none is reproducible
+          # on a Windows dev box, which is why they live here.
+          - {name: windows-separators, subject: 'feat: add a parser', paths: 'src\Core\P.cs', expect: success}
+          - {name: whitespace-only-paths, subject: 'feat: add a parser', paths: '  ', expect: success}
+          - {name: slash-in-types, subject: 'feat: add a parser', paths: 'src/a.cs', types: 'feat|fix|foo/bar', expect: success}
+          - {name: prefix-types, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feat|feature', expect: success}
+          - {name: prefix-types-reordered, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feature|feat', expect: success}
     steps:
       - uses: actions/checkout@v5
       - name: write fixture
@@ -74,6 +79,7 @@ jobs:
         with:
           message-file: ${{ runner.temp }}/msg.txt
           changed-paths: ${{ matrix.case.paths }}
+          types: ${{ matrix.case.types || 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert' }}
       - name: assert
         shell: bash
         env:
@@ -81,8 +87,74 @@ jobs:
           EXPECT: ${{ matrix.case.expect }}
         run: |
           set -euo pipefail
-          if [ "$OUTCOME" != "$EXPECT" ]; then
-            echo "::error::expected $EXPECT, got $OUTCOME"
-            exit 1
-          fi
+          [ "$OUTCOME" = "$EXPECT" ] || { echo "::error::expected $EXPECT, got $OUTCOME"; exit 1; }
           echo "OK: $EXPECT"
+
+  # A UTF-8 BOM cannot be expressed in the matrix, and a path list large enough
+  # to fill the pipe buffer has to be generated. Both broke the script before.
+  check-commit-message-edge:
+    name: check-commit-message (edge)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: fixture - UTF-8 BOM
+        shell: bash
+        run: printf '\xef\xbb\xbffeat: add a parser\n' > "$RUNNER_TEMP/bom.txt"
+      - id: bom
+        continue-on-error: true
+        uses: ./check-commit-message
+        with:
+          message-file: ${{ runner.temp }}/bom.txt
+          changed-paths: 'src/Core/P.cs'
+
+      # >64KB of paths with the ONLY product file first: `grep -q` used to exit
+      # early, SIGPIPE the producer, and pipefail turned that into "no match".
+      - name: fixture - oversized path list
+        id: big
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'feat: add a parser\n' > "$RUNNER_TEMP/big-msg.txt"
+          { printf 'src/hit.cs'; for i in $(seq 1 8000); do printf ' docs/file%05d.md' "$i"; done; } > "$RUNNER_TEMP/paths.txt"
+          echo "bytes=$(wc -c < "$RUNNER_TEMP/paths.txt")" >> "$GITHUB_OUTPUT"
+          { echo 'paths<<EOF'; cat "$RUNNER_TEMP/paths.txt"; echo; echo 'EOF'; } >> "$GITHUB_OUTPUT"
+      - id: oversized
+        continue-on-error: true
+        uses: ./check-commit-message
+        with:
+          message-file: ${{ runner.temp }}/big-msg.txt
+          changed-paths: ${{ steps.big.outputs.paths }}
+
+      # An unquoted path containing a glob must not re-resolve against the CWD,
+      # which holds a real src/ directory here.
+      - name: fixture - glob in path
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          printf 'feat: add a parser\n' > "$RUNNER_TEMP/glob-msg.txt"
+      - id: glob
+        continue-on-error: true
+        uses: ./check-commit-message
+        with:
+          message-file: ${{ runner.temp }}/glob-msg.txt
+          changed-paths: '*'
+          product-path: 'src'
+
+      - name: assert
+        shell: bash
+        env:
+          BOM: ${{ steps.bom.outcome }}
+          OVERSIZED: ${{ steps.oversized.outcome }}
+          GLOB: ${{ steps.glob.outcome }}
+          BYTES: ${{ steps.big.outputs.bytes }}
+        run: |
+          set -euo pipefail
+          rc=0
+          [ "$BOM" = "success" ] || { echo "::error::BOM: expected success, got $BOM"; rc=1; }
+          [ "$OVERSIZED" = "success" ] || { echo "::error::oversized ($BYTES bytes): expected success, got $OVERSIZED"; rc=1; }
+          [ "$GLOB" = "failure" ] || { echo "::error::glob: expected failure, got $GLOB"; rc=1; }
+          [ "$rc" = "0" ] && echo "OK (path list was $BYTES bytes)"
+          exit "$rc"

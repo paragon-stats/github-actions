@@ -25,53 +25,14 @@ inputs:
 runs:
   using: composite
   steps:
+    # The logic lives in a script, not inline here, so a git hook can run the
+    # very same file. Consumers vendor a pinned copy and diff it against this one.
     - shell: bash
       env:
         MESSAGE_FILE: ${{ inputs.message-file }}
         CHANGED_PATHS: ${{ inputs.changed-paths }}
         TYPES: ${{ inputs.types }}
         PRODUCT_PATH: ${{ inputs.product-path }}
-      run: |
-        set -euo pipefail
-
-        if [ ! -f "$MESSAGE_FILE" ]; then
-          echo "::error::message file not found: $MESSAGE_FILE"
-          exit 2
-        fi
-
-        # First non-blank, non-comment line is the subject.
-        subject="$(grep -vE '^[[:space:]]*(#|$)' "$MESSAGE_FILE" | head -n 1 || true)"
-        if [ -z "$subject" ]; then
-          echo "::error::commit message is empty"
-          exit 1
-        fi
-
-        # git's own generated subjects are not Conventional Commits.
-        case "$subject" in
-          "Merge "*|"Revert "*|"fixup!"*|"squash!"*)
-            echo "Exempt subject: $subject"
-            exit 0
-            ;;
-        esac
-
-        if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([[:alnum:]._/ -]+\))?!?: .+"; then
-          echo "::error::Commit subject is not a Conventional Commit: $subject"
-          echo "Expected: type(scope): subject   (types: ${TYPES//|/, })"
-          exit 1
-        fi
-
-        # Release-triggering types must change product code. Skipped when the
-        # caller passes no paths.
-        type="$(printf '%s' "$subject" | sed -E "s/^($TYPES).*/\1/")"
-        if { [ "$type" = "feat" ] || [ "$type" = "fix" ]; } && [ -n "${CHANGED_PATHS// /}" ]; then
-          # Normalise Windows separators; the local hook passes native paths.
-          normalised="${CHANGED_PATHS//\\//}"
-          if ! printf '%s\n' $normalised | grep -qE "^$PRODUCT_PATH"; then
-            echo "::error::'$type:' changes nothing under $PRODUCT_PATH (product code): $subject"
-            echo "feat/fix bump the version and must touch $PRODUCT_PATH."
-            echo "Use ci:/chore:/docs:/test:/build:/refactor: for tooling, docs, tests, or CI."
-            exit 1
-          fi
-        fi
-
-        echo "OK: $subject"
+      # Invoked via `bash` rather than by path: git records the file 100644 when
+      # committed from a core.filemode=false (Windows) clone, which would exit 126.
+      run: bash "${{ github.action_path }}/check-commit-message.sh"
