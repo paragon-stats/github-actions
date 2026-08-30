@@ -194,3 +194,93 @@ jobs:
           [ "$GLOB" = "failure" ] || { echo "::error::glob: expected failure, got $GLOB"; rc=1; }
           [ "$rc" = "0" ] && echo "OK (path list was $BYTES bytes)"
           exit "$rc"
+
+  # D2 applied to ourselves: pyproject.toml restates the bump mapping for PSR,
+  # commit-types.txt stays the source of truth, drift fails the build.
+  bump-mapping-drift:
+    name: bump mapping matches commit-types.txt
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys, tomllib
+
+          types = {}
+          for line in open("commit-types.txt"):
+              cols = line.split("#")[0].split()
+              if cols:
+                  types[cols[0]] = cols[1]
+
+          opts = tomllib.load(open("pyproject.toml", "rb"))["tool"]["semantic_release"]["commit_parser_options"]
+          checks = {
+              "allowed_tags": sorted(types),
+              "minor_tags": sorted(t for t, b in types.items() if b == "minor"),
+              "patch_tags": sorted(t for t, b in types.items() if b == "patch"),
+          }
+          rc = 0
+          for key, want in checks.items():
+              got = sorted(opts[key])
+              if got != want:
+                  print(f"::error::pyproject {key} drifted: {got} != commit-types.txt {want}")
+                  rc = 1
+          sys.exit(rc)
+          PY
+
+  # Cuts the release for whatever landed on main, once every check above is
+  # green - v1.1.0 shipped broken precisely because tagging outran CI. PSR
+  # pushes the vX.Y.Z tag and the GitHub release; the moving major tag is ours.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [branch-name, check-commit-message, check-commit-message-edge, bump-mapping-drift]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: sign tags when the key secret exists
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ { print $5; exit }')"
+            git config user.signingkey "$keyid"
+            git config tag.gpgSign true
+            echo "signing with $keyid"
+          else
+            echo "GPG_PRIVATE_KEY not set; tags will be unsigned"
+          fi
+      - name: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          pip install --quiet python-semantic-release==10.6.2
+          semantic-release version --no-changelog --no-commit --tag --push --vcs-release
+      - name: move the major tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')"
+          major="${latest%%.*}"
+          if [ "$(git rev-parse "$major^{commit}" 2>/dev/null || true)" != "$(git rev-parse "$latest^{commit}")" ]; then
+            git tag -f "$major" "$latest^{commit}"
+            git push -f origin "$major"
+            echo "moved $major -> $latest"
+          else
+            echo "$major already at $latest"
+          fi
