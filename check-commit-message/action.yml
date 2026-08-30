@@ -12,9 +12,28 @@ inputs:
     required: false
     default: ''
   types:
-    description: Pipe-separated Conventional Commit types accepted as the subject prefix.
+    description: >-
+      Pipe-separated Conventional Commit types accepted as the subject prefix.
+      Empty reads the shared, versioned commit-types.txt at the root of this
+      repo - the org's single source of truth. A repo that sets this must set
+      release-triggering-types too; a bare list carries no bump data.
     required: false
-    default: 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert'
+    default: ''
+  release-triggering-types:
+    description: >-
+      Pipe-separated types that bump the version and so must touch product
+      code. Empty derives it from commit-types.txt (every type whose bump is
+      not "none").
+    required: false
+    default: ''
+  exempt-pattern:
+    description: >-
+      Extended regex matching subjects exempt from validation. Empty uses the
+      script's default, which covers git's own generated subjects
+      (Merge/Revert/fixup!/squash!); pass a narrower pattern without "Revert "
+      to require hand-written revert(scope) subjects instead.
+    required: false
+    default: ''
   product-path:
     description: >-
       Path prefix holding product code. A feat/fix commit must change at least
@@ -32,7 +51,12 @@ runs:
         MESSAGE_FILE: ${{ inputs.message-file }}
         CHANGED_PATHS: ${{ inputs.changed-paths }}
         TYPES: ${{ inputs.types }}
+        RELEASE_TYPES: ${{ inputs.release-triggering-types }}
+        # action_path is this subdirectory; the fact-set sits at the repo root
+        # so branch-name reads the very same file.
+        TYPES_FILE: ${{ github.action_path }}/../commit-types.txt
         PRODUCT_PATH: ${{ inputs.product-path }}
+        EXEMPT_PATTERN: ${{ inputs.exempt-pattern }}
       # Invoked via `bash` rather than by path: git records the file 100644 when
       # committed from a core.filemode=false (Windows) clone, which would exit 126.
       run: bash "${{ github.action_path }}/check-commit-message.sh"

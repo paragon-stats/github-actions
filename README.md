@@ -29,10 +29,52 @@ Pin by tag:
     changed-paths: ${{ steps.changed.outputs.paths }}
 ```
 
-Every input has a default, so a repo only passes what differs from it. The
-accepted type set lives in the `types` input; `check-commit-message` also takes
-`product-path`, which is `src/` by default and must be set by repos that keep
-product code elsewhere.
+Every input has a default, so a repo only passes what differs from it.
+`check-commit-message` takes `product-path`, which is `src/` by default and must
+be set by repos that keep product code elsewhere.
+
+## Commit types
+
+[`commit-types.txt`](commit-types.txt) is the org's single source of truth for
+the accepted Conventional Commit types and the version bump each one triggers:
+
+```
+feat        minor
+fix         patch
+perf        patch
+security    patch
+revert      patch
+```
+
+...and `none` for `docs`, `chore`, `ci`, `refactor`, `test`, `style`, `build`.
+
+Both actions read it when their `types` input is empty, so the list lives in one
+tagged artifact instead of being restated per repo. Consumers declare their own
+release config natively and diff it against this file in CI, so drift fails the
+build rather than shipping.
+
+Every type whose bump is not `none` must touch `product-path` -
+`check-commit-message` derives that guard from the bump column, so a
+workflow-hardening `security:` commit or a `perf:` tweak to CI that changes
+nothing under `src/` cannot cut a release. A consequence: `revert(ci):` is
+invalid - reverting a CI change is written as a `ci:` commit, and `revert` is
+reserved for reverting product code. A repo that overrides `types` must
+override `release-triggering-types` too; a bare list carries no bump data.
+
+Git's generated subjects (`Merge `, `Revert `, `fixup!`, `squash!`) are exempt
+by default. A repo that wants hand-written `revert(scope):` subjects instead of
+git's `Revert "…"` narrows `exempt-pattern` to drop `Revert `.
+
+## Consumer notes
+
+- A vendored copy of `check-commit-message.sh` (for a git hook) must vendor
+  `commit-types.txt` beside it, or set `TYPES_FILE` to point at it.
+- Vendoring from a Windows clone (`core.filemode=false`) records the script
+  `100644`; run `git update-index --chmod=+x` on the vendored copy or invoke it
+  via `bash`. The action path already invokes via `bash`.
+- Consumers that delete their native validators depend on this repo's test
+  matrix as their only coverage of commit validation. Removing matrix cases is
+  a breaking change.
 
 ## Design
 

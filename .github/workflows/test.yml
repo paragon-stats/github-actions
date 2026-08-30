@@ -24,6 +24,9 @@ jobs:
           - {name: no-issue-number, branch: 'ci/protected-trunk', expect: failure}
           - {name: unknown-type, branch: 'wip/14-something', expect: failure}
           - {name: uppercase, branch: 'ci/14-Protected-Trunk', expect: failure}
+          # Proves the type set is read from the shared commit-types.txt: this
+          # type exists only there, never in an action.yml default.
+          - {name: security-type, branch: 'security/42-harden-workflows', expect: success}
     steps:
       - uses: actions/checkout@v5
       - id: run
@@ -59,6 +62,17 @@ jobs:
           - {name: feat-inside-src, subject: 'feat: add a parser', paths: 'src/Core/P.cs', expect: success}
           - {name: chore-outside-src, subject: 'chore: bump a tool', paths: '.config/tools.json', expect: success}
           - {name: scope-with-slash, subject: 'ci(git/hooks): tidy', paths: '', expect: success}
+          # The guard derives from the fact-set's bump column: every type that
+          # is not "none" bumps the version and must touch product code.
+          # Hardening a workflow or reverting a CI file must not cut a release.
+          - {name: security-inside-src, subject: 'security: escape the input', paths: 'src/Core/P.cs', expect: success}
+          - {name: security-outside-src, subject: 'security: pin the actions', paths: '.github/workflows/x.yml', expect: failure}
+          - {name: perf-outside-src, subject: 'perf: shrink the CI image', paths: '.github/workflows/x.yml', expect: failure}
+          - {name: revert-outside-src, subject: 'revert(ci): remove the pipeline', paths: '.github/workflows/x.yml', expect: failure}
+          # "Revert" is exempt by default; a repo can narrow the pattern to
+          # force hand-written revert(scope) subjects instead.
+          - {name: revert-exempt-default, subject: 'Revert "feat: add a parser"', paths: '.github/x.yml', expect: success}
+          - {name: revert-not-exempt, subject: 'Revert "feat: add a parser"', paths: '', exempt: '^(Merge |fixup!|squash!)', expect: failure}
           # Regressions. Each of these shipped broken once; none is reproducible
           # on a Windows dev box, which is why they live here.
           - {name: windows-separators, subject: 'feat: add a parser', paths: 'src\Core\P.cs', expect: success}
@@ -79,7 +93,10 @@ jobs:
         with:
           message-file: ${{ runner.temp }}/msg.txt
           changed-paths: ${{ matrix.case.paths }}
-          types: ${{ matrix.case.types || 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert' }}
+          # Empty for most cases, so they exercise the shared commit-types.txt
+          # rather than a list restated here.
+          types: ${{ matrix.case.types }}
+          exempt-pattern: ${{ matrix.case.exempt }}
       - name: assert
         shell: bash
         env:
@@ -131,6 +148,20 @@ jobs:
         with:
           message-file: ${{ runner.temp }}/big-msg.txt
           changed-paths: ${{ steps.big.outputs.paths }}
+
+      # Every type in the fact-set must land in the alternation as its own
+      # token: a formatting slip (compound row, stray column) would silently
+      # reject docs:/chore:/ci: - most commits in the org - while the
+      # single-type matrix cases still pass.
+      - name: fixture - every fact-set type validates
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r t _; do
+            printf '%s: exercise the fact-set\n' "$t" > "$RUNNER_TEMP/type.txt"
+            MESSAGE_FILE="$RUNNER_TEMP/type.txt" CHANGED_PATHS='src/x.cs' TYPES_FILE=commit-types.txt \
+              bash check-commit-message/check-commit-message.sh
+          done < <(grep -vE '^[[:space:]]*(#|$)' commit-types.txt)
 
       # An unquoted path containing a glob must not re-resolve against the CWD,
       # which holds a real src/ directory here.

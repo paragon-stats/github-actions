@@ -6,9 +6,13 @@ inputs:
     description: Branch name to validate (e.g. the PR head ref).
     required: true
   types:
-    description: Pipe-separated Conventional Commit types accepted as the branch prefix.
+    description: >-
+      Pipe-separated Conventional Commit types accepted as the branch prefix.
+      Empty reads the shared, versioned commit-types.txt at the root of this
+      repo - the org's single source of truth. Set it only to narrow or extend
+      the set for one repo.
     required: false
-    default: 'feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert'
+    default: ''
   exempt-pattern:
     description: >-
       Extended regex matching branches that are exempt, such as bot-generated
@@ -23,6 +27,9 @@ runs:
       env:
         BRANCH: ${{ inputs.branch }}
         TYPES: ${{ inputs.types }}
+        # action_path is this subdirectory; the fact-set sits at the repo root
+        # so check-commit-message reads the very same file.
+        TYPES_FILE: ${{ github.action_path }}/../commit-types.txt
         EXEMPT_PATTERN: ${{ inputs.exempt-pattern }}
       run: |
         set -euo pipefail
@@ -30,6 +37,15 @@ runs:
         if [ -z "$BRANCH" ]; then
           echo "::error::no branch name given"
           exit 2
+        fi
+
+        # Column 1 of each non-comment row of the shared fact-set.
+        if [ -z "$TYPES" ]; then
+          TYPES="$(awk '!/^[[:space:]]*#/ && NF { printf "%s%s", sep, $1; sep = "|" }' "$TYPES_FILE")"
+          if [ -z "$TYPES" ]; then
+            echo "::error::no commit types found in $TYPES_FILE"
+            exit 2
+          fi
         fi
 
         if [ -n "$EXEMPT_PATTERN" ] && printf '%s' "$BRANCH" | grep -qE "$EXEMPT_PATTERN"; then

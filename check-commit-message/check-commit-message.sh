@@ -10,14 +10,44 @@
 # and a local hook:
 #   MESSAGE_FILE   path to the commit message (or PR title)   [required]
 #   CHANGED_PATHS  space/newline separated changed paths      [default: empty]
-#   TYPES          pipe-separated Conventional Commit types
+#   TYPES          pipe-separated accepted types              [default: TYPES_FILE]
+#   RELEASE_TYPES  pipe-separated types that bump the version [default: TYPES_FILE]
+#   TYPES_FILE     commit-types.txt to read both from         [default: next to this file]
 #   PRODUCT_PATH   path prefix holding product code           [default: src/]
+#   EXEMPT_PATTERN ERE matching subjects to wave through      [default: git's own]
+#
+# A vendored copy must bring commit-types.txt along with it.
 set -euo pipefail
 
 MESSAGE_FILE="${MESSAGE_FILE:-}"
 CHANGED_PATHS="${CHANGED_PATHS:-}"
-TYPES="${TYPES:-feat|fix|docs|chore|ci|refactor|test|perf|style|build|revert}"
 PRODUCT_PATH="${PRODUCT_PATH:-src/}"
+EXEMPT_PATTERN="${EXEMPT_PATTERN:-^(Merge |Revert |fixup!|squash!)}"
+
+# The type set is data, not code: one versioned commit-types.txt, read by every
+# action and every consumer, so the list cannot drift between repos. Column 1 is
+# the type, column 2 the version bump it triggers (minor|patch|none).
+#
+# Both lists stay overridable so a repo can narrow the set for itself - but a
+# repo overriding one must override both: a bare pipe string carries no bump
+# data, and deriving RELEASE_TYPES from it would silently guard nothing.
+TYPES="${TYPES:-}"
+RELEASE_TYPES="${RELEASE_TYPES:-}"
+if [ -z "$TYPES" ] || [ -z "$RELEASE_TYPES" ]; then
+  types_file="${TYPES_FILE:-$(dirname "$0")/commit-types.txt}"
+  if [ ! -f "$types_file" ]; then
+    echo "no commit types: set TYPES and RELEASE_TYPES, or provide $types_file" >&2
+    exit 2
+  fi
+  [ -n "$TYPES" ] || TYPES="$(awk '!/^[[:space:]]*#/ && NF { printf "%s%s", sep, $1; sep = "|" }' "$types_file")"
+  # Anything not spelled exactly "none" is release-triggering, so a typo in
+  # column 2 over-guards - which fails loudly - rather than under-guarding.
+  [ -n "$RELEASE_TYPES" ] || RELEASE_TYPES="$(awk '!/^[[:space:]]*#/ && NF && $2 != "none" { printf "%s%s", sep, $1; sep = "|" }' "$types_file")"
+  if [ -z "$TYPES" ]; then
+    echo "no commit types found in $types_file" >&2
+    exit 2
+  fi
+fi
 
 if [ -z "$MESSAGE_FILE" ] || [ ! -f "$MESSAGE_FILE" ]; then
   echo "usage: MESSAGE_FILE=<file> [CHANGED_PATHS=...] check-commit-message.sh" >&2
@@ -34,13 +64,13 @@ if [ -z "$subject" ]; then
   exit 1
 fi
 
-# git's own generated subjects are not Conventional Commits.
-case "$subject" in
-  "Merge "*|"Revert "*|"fixup!"*|"squash!"*)
-    echo "Exempt subject: $subject"
-    exit 0
-    ;;
-esac
+# git's own generated subjects are not Conventional Commits. The default waves
+# them all through; a repo that wants hand-written revert(scope): subjects
+# instead narrows the pattern to drop "Revert ".
+if [ -n "$EXEMPT_PATTERN" ] && printf '%s' "$subject" | grep -qE "$EXEMPT_PATTERN"; then
+  echo "Exempt subject: $subject"
+  exit 0
+fi
 
 if ! printf '%s' "$subject" | grep -qE "^($TYPES)(\([[:alnum:]._/ -]+\))?!?: .+"; then
   {
@@ -58,10 +88,13 @@ fi
 # validated above, so the leading letters are the type.
 type="${subject%%[^[:alpha:]]*}"
 
-# Release-triggering types must change product code. Skipped when the caller
-# passes no paths - including a value that is only whitespace, which is what an
-# unstripped `git diff --name-only` yields when nothing is staged.
-if { [ "$type" = "feat" ] || [ "$type" = "fix" ]; } && [ -n "${CHANGED_PATHS//[[:space:]]/}" ]; then
+# Release-triggering types must change product code, and which types trigger a
+# release comes from the fact-set's bump column, not a hardcoded subset - a
+# patch-mapped perf: touching only CI would otherwise cut a release, the exact
+# defect this guard exists for. Skipped when the caller passes no paths -
+# including a value that is only whitespace, which is what an unstripped
+# `git diff --name-only` yields when nothing is staged.
+if printf '%s' "$type" | grep -qE "^($RELEASE_TYPES)\$" && [ -n "${CHANGED_PATHS//[[:space:]]/}" ]; then
   # Normalise Windows separators; a local hook passes native paths.
   normalised="${CHANGED_PATHS//\\//}"
   # Word-splitting is intended so each path is its own line; globbing is NOT -
@@ -75,7 +108,7 @@ if { [ "$type" = "feat" ] || [ "$type" = "fix" ]; } && [ -n "${CHANGED_PATHS//[[
     {
       echo "'$type:' changes nothing under $PRODUCT_PATH (product code):"
       echo "  $subject"
-      echo "feat/fix bump the version and must touch $PRODUCT_PATH."
+      echo "Release-triggering types (${RELEASE_TYPES//|/, }) bump the version and must touch $PRODUCT_PATH."
       echo "Use ci:/chore:/docs:/test:/build:/refactor: for tooling, docs, tests, or CI."
     } >&2
     exit 1
