@@ -101,7 +101,8 @@ jobs:
 
       - name: fixture - UTF-8 BOM
         shell: bash
-        run: printf '\xef\xbb\xbffeat: add a parser\n' > "$RUNNER_TEMP/bom.txt"
+        run: |
+          printf '\xef\xbb\xbffeat: add a parser\n' > "$RUNNER_TEMP/bom.txt"
       - id: bom
         continue-on-error: true
         uses: ./check-commit-message
