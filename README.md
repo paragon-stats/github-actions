@@ -11,6 +11,7 @@ same rule cannot drift between repos written in different languages.
 | --- | --- |
 | [`check-commit-message`](check-commit-message/) | Validate a commit subject follows Conventional Commits, and that release-triggering types touch product code. |
 | [`branch-name`](branch-name/) | Validate a branch name follows `<type>/<issue#>-<short-kebab-summary>`. |
+| [`release`](release/) | Cut a release with python-semantic-release, tag-only: bump from Conventional Commits, GPG-signed tag, GitHub Release. The org's release tool. |
 
 ## Usage
 
@@ -77,6 +78,47 @@ never fails open on a typo'd regex.
 Git's generated subjects (`Merge `, `Revert `, `fixup!`, `squash!`) are exempt
 by default. A repo that wants hand-written `revert(scope):` subjects instead of
 git's `Revert "…"` narrows `exempt-pattern` to drop `Revert `.
+
+## Release automation
+
+The [`release`](release/) action is the org's release tool: on push to the
+default branch it computes the bump from Conventional Commits since the last
+`v*` tag (per the fact-set above), pushes a GPG-signed tag, and creates the
+GitHub Release. Tag-only by design — no changelog file, no release PR, no bot
+commit — so it works under rulesets that forbid pushes to the default branch.
+
+A consuming repo must provide (all enforced fail-closed by the action):
+
+1. **A checkout with history, tags, and credentials** — `fetch-depth: 0` and
+   the default persisted credentials on that one checkout (the tag push needs
+   them; scope your zizmor `artipacked` ignore to that workflow file).
+2. **A seed tag** — at least one `vX.Y.Z` tag (`v0.0.0` for a new repo).
+3. **Bump policy in `pyproject.toml`** — the action ships the mechanism; the
+   repo declares the policy, and should drift-check it against the fact-set:
+
+   ```toml
+   [tool.semantic_release]
+   allow_zero_version = true   # 0.x until a deliberate 1.0
+   major_on_zero = false
+
+   [tool.semantic_release.commit_parser_options]
+   allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "security", "style", "test"]
+   minor_tags = ["feat"]
+   patch_tags = ["fix", "perf", "security", "revert"]
+   ```
+
+4. **`gpg-private-key`** — the org's passphrase-less signing key secret;
+   empty means unsigned tags.
+5. **`vcs-release` choice** — `'true'` (default) lets the action create the
+   Release; `'false'` pushes the tag only, for repos with **immutable
+   releases** that attach build assets: their publish job creates the Release
+   itself (draft, assets, then published) in the same workflow, since a
+   GITHUB_TOKEN-created Release fires no other workflows. Reference
+   implementation: `paragon-stats/.github/workflows/release.yml`.
+
+Outputs `released` and `tag` drive downstream jobs (`needs:` + `if:`).
+Planned: `force-level` and prerelease inputs for deliberate 1.0/2.0 cuts and
+rc rehearsals (#1).
 
 ## Consumer notes
 
