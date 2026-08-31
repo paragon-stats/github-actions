@@ -4,6 +4,10 @@ description: >-
   Conventional Commits since the last v* tag, push a (GPG-signed) tag, and
   create the GitHub Release. No commit, no changelog file - the pattern for
   repos whose rulesets forbid bot commits to the default branch.
+  Preconditions (enforced): a full checkout with tags (actions/checkout
+  fetch-depth: 0), at least one vX.Y.Z tag (seed new repos with v0.0.0), and
+  a [tool.semantic_release] section in pyproject.toml declaring the bump
+  mapping - the action ships the mechanism, the repo declares the policy.
 
 inputs:
   gpg-private-key:
@@ -29,6 +33,25 @@ outputs:
 runs:
   using: composite
   steps:
+    # Fail-closed preconditions: a shallow or tagless clone makes PSR compute
+    # from nothing and re-cut old versions, and PSR without declared parser
+    # options silently falls back to defaults that lack security/revert.
+    - name: verify preconditions
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          echo "::error::shallow clone: check out with fetch-depth: 0 so tags and history are present"
+          exit 1
+        fi
+        if [ -z "$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*')" ]; then
+          echo "::error::no vX.Y.Z tag found: fetch tags (fetch-depth: 0), or seed a new repo with v0.0.0"
+          exit 1
+        fi
+        if ! grep -qs '^\[tool\.semantic_release\]' pyproject.toml; then
+          echo "::error::pyproject.toml lacks [tool.semantic_release]: declare the bump mapping (the action ships the mechanism, not the policy)"
+          exit 1
+        fi
     - name: sign tags when a key is provided
       shell: bash
       env:
@@ -37,7 +60,13 @@ runs:
         set -euo pipefail
         if [ -n "$GPG_PRIVATE_KEY" ]; then
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
-          keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ { print $5; exit }')"
+          # The keyid comes from the provided key itself, never from the
+          # keyring - a reused runner may hold other keys.
+          keyid="$(printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --with-colons --import-options show-only --import 2>/dev/null | awk -F: '/^sec/ { print $5; exit }')"
+          if [ -z "$keyid" ]; then
+            echo "::error::could not read a secret key id from gpg-private-key"
+            exit 1
+          fi
           # Fail here with a clear message, not later inside semantic-release:
           # headless signing requires a passphrase-less key.
           if ! printf 'probe' | gpg --batch --pinentry-mode error --local-user "$keyid" --detach-sign > /dev/null 2>&1; then

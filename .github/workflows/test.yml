@@ -271,9 +271,18 @@ jobs:
       # of the shared action - consumers pin exact SHAs instead.
       - name: move the major tag
         shell: bash
+        env:
+          # The action's own output - one derivation of the latest tag, not
+          # two. Set even on no-release runs, so a hand-moved major tag still
+          # self-heals on the next push.
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          latest="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*')"
+          if [ -z "$TAG" ]; then
+            echo "no vX.Y.Z tag; nothing to move"
+            exit 0
+          fi
+          latest="$TAG"
           major="${latest%%.*}"
           if [ "$(git rev-parse "$major^{commit}" 2>/dev/null || true)" != "$(git rev-parse "$latest^{commit}")" ]; then
             # Lightweight pointer by design; -c overrides the tag.gpgSign=true the
