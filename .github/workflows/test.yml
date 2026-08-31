@@ -21,6 +21,9 @@ jobs:
           - {name: valid, branch: 'ci/14-protected-trunk', expect: success}
           - {name: valid-multi-hyphen, branch: 'chore/198-github-mcp-server', expect: success}
           - {name: exempt-bot, branch: 'dependabot/nuget/xunit-4.0.0', expect: success}
+          # The org retired its release-PR bot; its branch prefix is no longer
+          # exempt, so the dead exemption cannot silently return.
+          - {name: no-dead-bot-exemption, branch: 'release-please--branches--main', expect: failure}
           - {name: no-issue-number, branch: 'ci/protected-trunk', expect: failure}
           - {name: unknown-type, branch: 'wip/14-something', expect: failure}
           - {name: uppercase, branch: 'ci/14-Protected-Trunk', expect: failure}

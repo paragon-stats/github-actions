@@ -18,7 +18,7 @@ inputs:
       Extended regex matching branches that are exempt, such as bot-generated
       ones that cannot follow the convention.
     required: false
-    default: '^(dependabot/|release-please--)'
+    default: '^dependabot/'
 
 runs:
   using: composite
