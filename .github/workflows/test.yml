@@ -261,38 +261,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: sign tags when the key secret exists
-        shell: bash
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -n "$GPG_PRIVATE_KEY" ]; then
-            printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
-            keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ { print $5; exit }')"
-            # Fail here with a clear message, not later inside semantic-release:
-            # headless signing requires a passphrase-less key, and a protected
-            # one would otherwise kill every release with a cryptic gpg error.
-            if ! printf 'probe' | gpg --batch --pinentry-mode error --local-user "$keyid" --detach-sign > /dev/null 2>&1; then
-              echo "::error::GPG_PRIVATE_KEY needs a passphrase to sign; CI signing requires a passphrase-less key"
-              exit 1
-            fi
-            git config user.signingkey "$keyid"
-            git config tag.gpgSign true
-            echo "signing with $keyid"
-          else
-            echo "GPG_PRIVATE_KEY not set; tags will be unsigned"
-          fi
-      - name: release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          pip install --quiet python-semantic-release==10.6.2
-          semantic-release version --no-changelog --no-commit --tag --push --vcs-release
+      # Dogfood: this repo releases itself with its own shared action, so the
+      # one copy consumers pin is exercised on every push to main.
+      - id: release
+        uses: ./release
+        with:
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+      # Moving major tags are this repo's own interface convention, not part
+      # of the shared action - consumers pin exact SHAs instead.
       - name: move the major tag
         shell: bash
         run: |
