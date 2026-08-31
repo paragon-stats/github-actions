@@ -48,6 +48,18 @@ runs:
           fi
         fi
 
+        # A pattern that does not compile must fail closed: grep exits 2 on a
+        # bad regex, which inside an if-condition reads as "no match" and would
+        # skip the very check the pattern exists for.
+        for pat in "$TYPES" "$EXEMPT_PATTERN"; do
+          rc=0
+          grep -qE -e "$pat" /dev/null 2>/dev/null || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::error::invalid extended regex in types/exempt-pattern: $pat"
+            exit 2
+          fi
+        done
+
         if [ -n "$EXEMPT_PATTERN" ] && printf '%s' "$BRANCH" | grep -qE "$EXEMPT_PATTERN"; then
           echo "Exempt automation branch: $BRANCH"
           exit 0

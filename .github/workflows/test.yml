@@ -77,9 +77,19 @@ jobs:
           # on a Windows dev box, which is why they live here.
           - {name: windows-separators, subject: 'feat: add a parser', paths: 'src\Core\P.cs', expect: success}
           - {name: whitespace-only-paths, subject: 'feat: add a parser', paths: '  ', expect: success}
-          - {name: slash-in-types, subject: 'feat: add a parser', paths: 'src/a.cs', types: 'feat|fix|foo/bar', expect: success}
-          - {name: prefix-types, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feat|feature', expect: success}
-          - {name: prefix-types-reordered, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feature|feat', expect: success}
+          # Overriding types requires overriding release-triggering-types too;
+          # the pairing is enforced, so the override cases carry both.
+          - {name: slash-in-types, subject: 'feat: add a parser', paths: 'src/a.cs', types: 'feat|fix|foo/bar', rtypes: 'feat|fix', expect: success}
+          - {name: prefix-types, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feat|feature', rtypes: 'feat', expect: success}
+          - {name: prefix-types-reordered, subject: 'feature: overhaul', paths: 'docs/x.md', types: 'feature|feat', rtypes: 'feat', expect: success}
+          - {name: types-without-release-types, subject: 'feat: add a parser', paths: 'src/a.cs', types: 'feat|fix', expect: failure}
+          # A pattern that does not compile fails CLOSED (exit 2), never as a
+          # silently skipped guard.
+          - {name: invalid-release-types-regex, subject: 'feat: add a workflow', paths: '.github/x.yml', types: 'feat|fix', rtypes: 'feat|fix(', expect: failure}
+          - {name: invalid-exempt-regex, subject: 'ci: tidy', paths: '', exempt: '^(Merge |fixup!', expect: failure}
+          # Empty exempt-pattern means the default; a never-matching pattern
+          # disables exemptions entirely.
+          - {name: exemptions-disabled, subject: 'Merge branch main into topic', paths: '', exempt: 'a^', expect: failure}
     steps:
       - uses: actions/checkout@v5
       - name: write fixture
@@ -96,6 +106,7 @@ jobs:
           # Empty for most cases, so they exercise the shared commit-types.txt
           # rather than a list restated here.
           types: ${{ matrix.case.types }}
+          release-triggering-types: ${{ matrix.case.rtypes }}
           exempt-pattern: ${{ matrix.case.exempt }}
       - name: assert
         shell: bash
@@ -210,6 +221,10 @@ jobs:
           import sys, tomllib
 
           types = {}
+          bad = [c[0] for c in (l.split("#")[0].split() for l in open("commit-types.txt")) if len(c) == 1]
+          if bad:
+              print(f"::error::commit-types.txt rows missing the bump column: {', '.join(bad)}")
+              sys.exit(1)
           for line in open("commit-types.txt"):
               cols = line.split("#")[0].split()
               if cols:
@@ -255,6 +270,13 @@ jobs:
           if [ -n "$GPG_PRIVATE_KEY" ]; then
             printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
             keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ { print $5; exit }')"
+            # Fail here with a clear message, not later inside semantic-release:
+            # headless signing requires a passphrase-less key, and a protected
+            # one would otherwise kill every release with a cryptic gpg error.
+            if ! printf 'probe' | gpg --batch --pinentry-mode error --local-user "$keyid" --detach-sign > /dev/null 2>&1; then
+              echo "::error::GPG_PRIVATE_KEY needs a passphrase to sign; CI signing requires a passphrase-less key"
+              exit 1
+            fi
             git config user.signingkey "$keyid"
             git config tag.gpgSign true
             echo "signing with $keyid"

@@ -16,7 +16,8 @@ inputs:
       Pipe-separated Conventional Commit types accepted as the subject prefix.
       Empty reads the shared, versioned commit-types.txt at the root of this
       repo - the org's single source of truth. A repo that sets this must set
-      release-triggering-types too; a bare list carries no bump data.
+      release-triggering-types too (enforced, exit 2): a bare list carries no
+      bump data.
     required: false
     default: ''
   release-triggering-types:
@@ -31,7 +32,8 @@ inputs:
       Extended regex matching subjects exempt from validation. Empty uses the
       script's default, which covers git's own generated subjects
       (Merge/Revert/fixup!/squash!); pass a narrower pattern without "Revert "
-      to require hand-written revert(scope) subjects instead.
+      to require hand-written revert(scope) subjects, or a never-matching
+      pattern such as 'a^' to disable exemptions entirely.
     required: false
     default: ''
   product-path:

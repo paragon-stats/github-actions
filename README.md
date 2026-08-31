@@ -59,7 +59,9 @@ workflow-hardening `security:` commit or a `perf:` tweak to CI that changes
 nothing under `src/` cannot cut a release. A consequence: `revert(ci):` is
 invalid - reverting a CI change is written as a `ci:` commit, and `revert` is
 reserved for reverting product code. A repo that overrides `types` must
-override `release-triggering-types` too; a bare list carries no bump data.
+override `release-triggering-types` too - enforced with exit 2, since a bare
+list carries no bump data. Patterns that do not compile also exit 2: a guard
+never fails open on a typo'd regex.
 
 Git's generated subjects (`Merge `, `Revert `, `fixup!`, `squash!`) are exempt
 by default. A repo that wants hand-written `revert(scope):` subjects instead of
