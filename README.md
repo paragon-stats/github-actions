@@ -14,16 +14,27 @@ same rule cannot drift between repos written in different languages.
 
 ## Usage
 
-Pin by tag:
+Pin at the granularity you want. `@latest`, `@vX`, and `@vX.Y` float to the
+newest matching release (moved automatically on every release); `@vX.Y.Z` and
+commit SHAs never move. Strictest wins for supply-chain caution: the org's own
+repos pin `@<full-sha>  # vX.Y.Z`.
+
+| Ref | Moves | You get |
+| --- | --- | --- |
+| `@<sha>  # vX.Y.Z` | never | exactly that commit (org house style) |
+| `@vX.Y.Z` | never | exactly that release |
+| `@vX.Y` | on patches | bug fixes only |
+| `@vX` | on minors + patches | new features, no breaking changes |
+| `@latest` | on every release | everything, including majors |
 
 ```yaml
-- uses: paragon-stats/github-actions/branch-name@v1
+- uses: paragon-stats/github-actions/branch-name@v2
   with:
     branch: ${{ github.event.pull_request.head.ref }}
 ```
 
 ```yaml
-- uses: paragon-stats/github-actions/check-commit-message@v1
+- uses: paragon-stats/github-actions/check-commit-message@v2
   with:
     message-file: /tmp/commit-msg.txt
     changed-paths: ${{ steps.changed.outputs.paths }}

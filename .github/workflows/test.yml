@@ -269,12 +269,12 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
       # Moving major tags are this repo's own interface convention, not part
       # of the shared action - consumers pin exact SHAs instead.
-      - name: move the major tag
+      - name: move the floating tags
         shell: bash
         env:
           # The action's own output - one derivation of the latest tag, not
-          # two. Set even on no-release runs, so a hand-moved major tag still
-          # self-heals on the next push.
+          # two. Set even on no-release runs, so a hand-moved floating tag
+          # still self-heals on the next push.
           TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
@@ -282,14 +282,18 @@ jobs:
             echo "no vX.Y.Z tag; nothing to move"
             exit 0
           fi
-          latest="$TAG"
-          major="${latest%%.*}"
-          if [ "$(git rev-parse "$major^{commit}" 2>/dev/null || true)" != "$(git rev-parse "$latest^{commit}")" ]; then
-            # Lightweight pointer by design; -c overrides the tag.gpgSign=true the
-            # signing step set, which would otherwise demand an annotation editor.
-            git -c tag.gpgSign=false tag -f "$major" "$latest^{commit}"
-            git push -f origin "$major"
-            echo "moved $major -> $latest"
-          else
-            echo "$major already at $latest"
-          fi
+          # Consumers choose their pin granularity: latest, vX, and vX.Y
+          # float to the newest matching release; vX.Y.Z and SHAs never move.
+          major="${TAG%%.*}"
+          minor="${TAG%.*}"
+          for float in "$major" "$minor" latest; do
+            if [ "$(git rev-parse "refs/tags/$float^{commit}" 2>/dev/null || true)" != "$(git rev-parse "refs/tags/$TAG^{commit}")" ]; then
+              # Lightweight pointers by design; -c overrides the tag.gpgSign=true
+              # the signing step set, which would otherwise demand an editor.
+              git -c tag.gpgSign=false tag -f "$float" "$TAG^{commit}"
+              git push -f origin "refs/tags/$float"
+              echo "moved $float -> $TAG"
+            else
+              echo "$float already at $TAG"
+            fi
+          done
