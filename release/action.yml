@@ -21,6 +21,15 @@ inputs:
     description: Token used to push the tag and create the GitHub Release.
     required: false
     default: ${{ github.token }}
+  vcs-release:
+    description: >-
+      Create the GitHub Release ("true", the default) or push the tag only
+      ("false"). Repos with immutable releases that attach build assets must
+      use "false" and create the Release themselves - as a draft, assets
+      uploaded, then published - because a published immutable release
+      accepts no further uploads.
+    required: false
+    default: 'true'
 
 outputs:
   released:
@@ -84,13 +93,18 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        VCS_RELEASE: ${{ inputs.vcs-release }}
       run: |
         set -euo pipefail
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         before="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)"
         pip install --quiet python-semantic-release==10.6.2
-        semantic-release version --no-changelog --no-commit --tag --push --vcs-release
+        if [ "$VCS_RELEASE" = "true" ]; then
+          semantic-release version --no-changelog --no-commit --tag --push --vcs-release
+        else
+          semantic-release version --no-changelog --no-commit --tag --push --no-vcs-release
+        fi
         after="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)"
         if [ -n "$after" ] && [ "$after" != "$before" ]; then released=true; else released=false; fi
         echo "released=$released" >> "$GITHUB_OUTPUT"
