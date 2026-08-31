@@ -100,11 +100,15 @@ runs:
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         before="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)"
         pip install --quiet python-semantic-release==10.6.2
-        if [ "$VCS_RELEASE" = "true" ]; then
-          semantic-release version --no-changelog --no-commit --tag --push --vcs-release
-        else
-          semantic-release version --no-changelog --no-commit --tag --push --no-vcs-release
-        fi
+        case "$VCS_RELEASE" in
+          true)  vcs_flag=--vcs-release ;;
+          false) vcs_flag=--no-vcs-release ;;
+          *)
+            echo "::error::vcs-release must be \"true\" or \"false\", got: $VCS_RELEASE"
+            exit 1
+            ;;
+        esac
+        semantic-release version --no-changelog --no-commit --tag --push "$vcs_flag"
         after="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || true)"
         if [ -n "$after" ] && [ "$after" != "$before" ]; then released=true; else released=false; fi
         echo "released=$released" >> "$GITHUB_OUTPUT"
