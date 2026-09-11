@@ -131,7 +131,7 @@ if printf '%s' "$type" | grep -qE "^($RELEASE_TYPES)\$" && [[ -n "${CHANGED_PATH
       echo "Release-triggering types (${RELEASE_TYPES//|/, }) bump the version and must touch $PRODUCT_PATH."
       # Derived, not restated: the non-releasing types are whatever remains of
       # TYPES once the release set is removed, so this hint can never go stale.
-      non_release="$(printf '%s' "$TYPES" | tr '|' '\n' | { grep -vxE "($RELEASE_TYPES)" || true; } | sed 's/$/:/' | tr '\n' '/' )"
+      non_release="$(printf '%s' "$TYPES" | tr '|' '\n' | { grep -vxE "($RELEASE_TYPES)" || true; } | sed 's/$/:/' | tr '\n' '/')"
       [[ -z "$non_release" ]] || echo "Use ${non_release%/} for tooling, docs, tests, or CI."
     } >&2
     exit 1
