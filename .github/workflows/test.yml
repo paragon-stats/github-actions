@@ -31,7 +31,7 @@ jobs:
           # type exists only there, never in an action.yml default.
           - {name: security-type, branch: 'security/42-harden-workflows', expect: success}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - id: run
         continue-on-error: true
         uses: ./branch-name
@@ -94,7 +94,7 @@ jobs:
           # disables exemptions entirely.
           - {name: exemptions-disabled, subject: 'Merge branch main into topic', paths: '', exempt: 'a^', expect: failure}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - name: write fixture
         shell: bash
         env:
@@ -128,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: fixture - UTF-8 BOM
         shell: bash
@@ -216,7 +216,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
       - shell: bash
         run: |
           set -euo pipefail
@@ -261,7 +261,7 @@ jobs:
     concurrency:
       group: release
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
       # Dogfood: this repo releases itself with its own shared action, so the
