@@ -1,0 +1,37 @@
+# Dependabot, set up to behave like the Renovate runner the homelab repositories use:
+# a daily check at 06:00 America/Los_Angeles (the runner's "renovate daily" schedule),
+# one pull request for all minor and patch updates, one pull request per major update,
+# no practical cap on open pull requests, and `type(deps)` commit titles. `daily` runs
+# Monday to Friday only.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    # "/" covers .github/workflows and a root action.yml; each composite action
+    # keeps its action.yml in its own directory, so each is listed.
+    directories:
+      - "/"
+      - "/branch-name"
+      - "/check-commit-message"
+      - "/release"
+    schedule:
+      interval: daily
+      time: "06:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 50
+    # zizmor dependabot-cooldown: never take a day-0 release; a week of soak
+    # time is cheap insurance against a compromised upstream publish.
+    cooldown:
+      default-days: 7
+    # Conventional-Commit prefix so dependabot's commits pass the commit-message
+    # check; `chore` is a non-releasing type in commit-types.txt, so these bumps
+    # never cut a release.
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
